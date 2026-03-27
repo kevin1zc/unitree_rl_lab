@@ -20,9 +20,10 @@ public:
                 lowcmd->msg_.motor_cmd()[i].mode() = values[i];
             }
         }
+
     } 
 
-    void enter()
+    void enter() override
     {
         // set gain
         static auto kd = param::config["FSM"]["Passive"]["kd"].as<std::vector<float>>();

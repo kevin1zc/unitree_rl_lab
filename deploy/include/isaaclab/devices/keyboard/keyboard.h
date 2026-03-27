@@ -1,11 +1,11 @@
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <vector>
-#include <deque>
+#include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
-#include <thread>
 
 
 /**
@@ -17,41 +17,44 @@ class Keyboard
 public:
   Keyboard()
   {
+    _tty_available = isatty(fileno(stdin));
+    if (!_tty_available) {
+      return;
+    }
+
     tcgetattr( fileno( stdin ), &_oldSettings );
     _newSettings = _oldSettings;
-    _oldSettings.c_lflag |= ( ICANON |  ECHO);
     _newSettings.c_lflag &= (~ICANON & ~ECHO);
+    _newSettings.c_cc[VMIN] = 0;
+    _newSettings.c_cc[VTIME] = 0;
 
     _startKey();
-
-    _thread_running  = true;
-    _readThread = std::thread([this] {
-      while (_running) {
-        _read();
-      }
-    });
   }
 
   ~Keyboard()
   {
-    _thread_running = false;
     _pauseKey();
   }
 
   void update()
   {
-    if(_key != _last_key)
-    {
-      on_pressed = _key != "";
-      on_released = _key == "";
+    _key.clear();
+    _keys.clear();
+    on_pressed = false;
+    on_released = false;
+
+    if (!_running) {
+      return;
     }
-    else
-    {
-      on_pressed = false;
-      on_released = false;
+
+    std::string latest_key;
+    while (_poll(latest_key)) {
+      if (!latest_key.empty()) {
+        _key = latest_key;
+        _keys.push_back(latest_key);
+        on_pressed = true;
+      }
     }
-    
-    _last_key = _key;
   }
 
   /**
@@ -60,6 +63,7 @@ public:
    * @return std::string 
    */
   std::string key() const { return _key; };
+  const std::vector<std::string>& keys() const { return _keys; };
 
   /**
    * @brief Get the String object from keyboard 
@@ -91,50 +95,54 @@ public:
   bool on_released = false;
 
   private:
-  bool _thread_running = false;
+  bool _tty_available = false;
   bool _running = false;
-  std::thread _readThread;
 
-  void _read()
+  bool _poll(std::string& key)
   {
-    if(_running)
-    {
-      FD_ZERO(&_fd_set);
-      FD_SET( fileno(stdin), &_fd_set);
-
-      _tv.tv_sec = 0;
-      _tv.tv_usec = 80000;
-
-      if(select(fileno(stdin)+1, &_fd_set, NULL, NULL, &_tv))
-      {
-        // Read the key value into _c
-        int res = read( fileno(stdin), &_c, 1 );
-
-        // Parser the key value
-        if(_c != '\033') {
-          // This is a normal key
-          _key = _c;
-        }else{
-          // This is a special key
-          int m = read(fileno(stdin), &_c, 1);
-          if(_c == '[')
-          {
-            m = read(fileno(stdin), &_c, 1);
-            switch (_c)
-            {
-            case 'A': _key = "up";    break;
-            case 'B': _key = "down";  break;
-            case 'C': _key = "right"; break;
-            case 'D': _key = "left";  break;
-            default:  _key = "";      break;
-            }
-          }
-        }
-      }else{
-        _key = "";
-      }
-      // std::cout << "key: "<< key() << std::endl;
+    key.clear();
+    if (!_running || !_tty_available) {
+      return false;
     }
+
+    FD_ZERO(&_fd_set);
+    FD_SET(fileno(stdin), &_fd_set);
+
+    _tv.tv_sec = 0;
+    _tv.tv_usec = 0;
+
+    if (select(fileno(stdin) + 1, &_fd_set, NULL, NULL, &_tv) <= 0) {
+      return false;
+    }
+
+    if (read(fileno(stdin), &_c, 1) <= 0) {
+      return false;
+    }
+
+    if (_c != '\033') {
+      key.assign(1, _c);
+      return true;
+    }
+
+    if (read(fileno(stdin), &_c, 1) <= 0) {
+      return false;
+    }
+
+    if (_c == '[') {
+      if (read(fileno(stdin), &_c, 1) <= 0) {
+        return false;
+      }
+      switch (_c)
+      {
+      case 'A': key = "up";    break;
+      case 'B': key = "down";  break;
+      case 'C': key = "right"; break;
+      case 'D': key = "left";  break;
+      default:  key.clear();   break;
+      }
+    }
+
+    return true;
   }
 
   /**
@@ -142,7 +150,9 @@ public:
    */
   void _pauseKey()
   {
-    tcsetattr( fileno( stdin ), TCSANOW, &_oldSettings );
+    if (_tty_available) {
+      tcsetattr(fileno(stdin), TCSANOW, &_oldSettings);
+    }
     _running = false;
   }
 
@@ -151,13 +161,17 @@ public:
    */
   void _startKey()
   {
-    tcsetattr( fileno( stdin ), TCSANOW, &_newSettings );
+    if (!_tty_available) {
+      return;
+    }
+    tcsetattr(fileno(stdin), TCSANOW, &_newSettings);
     _running = true;
   }
 
   fd_set _fd_set;
   char _c = '\0';
-  std::string _key, _last_key;
+  std::string _key;
+  std::vector<std::string> _keys;
   
   termios _oldSettings, _newSettings;
   timeval _tv;

@@ -26,9 +26,9 @@ public:
 
     virtual void exit() {}
 
-    std::string getStateString() { return FSMStringMap.left.at(state_); }
-    int getState() {return state_; }
-    bool isState(int state) { return state_ == state; }
+    std::string getStateString() const { return FSMStringMap.left.at(state_); }
+    int getState() const {return state_; }
+    bool isState(int state) const { return state_ == state; }
     std::vector<std::pair<std::function<bool()>, int>> registered_checks;
 private:
     int state_;

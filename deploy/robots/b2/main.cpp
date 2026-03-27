@@ -6,6 +6,7 @@
 std::unique_ptr<LowCmd_t> FSMState::lowcmd = nullptr;
 std::shared_ptr<LowState_t> FSMState::lowstate = nullptr;
 std::shared_ptr<Keyboard> FSMState::keyboard = nullptr;
+std::shared_ptr<Gamepad> FSMState::gamepad = nullptr;
 
 void init_fsm_state()
 {
@@ -51,4 +52,3 @@ int main(int argc, char** argv)
     
     return 0;
 }
-

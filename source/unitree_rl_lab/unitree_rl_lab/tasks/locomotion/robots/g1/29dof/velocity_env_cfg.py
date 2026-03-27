@@ -404,3 +404,54 @@ class RobotPlayEnvCfg(RobotEnvCfg):
         self.scene.terrain.terrain_generator.num_rows = 2
         self.scene.terrain.terrain_generator.num_cols = 10
         self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
+
+
+@configclass
+class ForwardYawCommandsCfg(CommandsCfg):
+    """Forward-speed and yaw command specifications for the G1 MDP."""
+
+    base_velocity = mdp.UniformLevelVelocityCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(10.0, 10.0),
+        rel_standing_envs=0.0,
+        rel_heading_envs=1.0,
+        heading_command=False,
+        debug_vis=True,
+        ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+            lin_vel_x=(0.0, 0.2),
+            lin_vel_y=(0.0, 0.0),
+            ang_vel_z=(0.0, 0.0),
+        ),
+        limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+            lin_vel_x=(0.0, 1.0),
+            lin_vel_y=(0.0, 0.0),
+            ang_vel_z=(-1.0, 1.0),
+        ),
+    )
+
+
+@configclass
+class ForwardYawCurriculumCfg:
+    """Curriculum terms for staged forward-speed and yaw locomotion."""
+
+    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+    lin_vel_cmd_levels = CurrTerm(func=mdp.staged_forward_lin_vel_x_cmd_levels)
+    ang_vel_cmd_levels = CurrTerm(func=mdp.staged_ang_vel_z_cmd_levels)
+
+
+@configclass
+class RobotForwardYawEnvCfg(RobotEnvCfg):
+    """Configuration for staged forward-speed and yaw locomotion on G1."""
+
+    commands: ForwardYawCommandsCfg = ForwardYawCommandsCfg()
+    curriculum: ForwardYawCurriculumCfg = ForwardYawCurriculumCfg()
+
+
+@configclass
+class RobotForwardYawPlayEnvCfg(RobotForwardYawEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 32
+        self.scene.terrain.terrain_generator.num_rows = 2
+        self.scene.terrain.terrain_generator.num_cols = 10
+        self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges

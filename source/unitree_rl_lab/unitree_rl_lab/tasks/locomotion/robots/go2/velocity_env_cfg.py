@@ -33,15 +33,15 @@ COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
     use_cache=False,
     sub_terrains={
         "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.1),
-        # "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-        #     proportion=0.1, noise_range=(0.01, 0.06), noise_step=0.01, border_width=0.25
-        # ),
-        # "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
-        #     proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
-        # ),
-        # "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
-        #     proportion=0.1, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
-        # ),
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=0.1, noise_range=(0.01, 0.06), noise_step=0.01, border_width=0.25
+        ),
+        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+            proportion=0.05, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
+        ),
+        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
+            proportion=0.05, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25
+        ),
         # "boxes": terrain_gen.MeshRandomGridTerrainCfg(
         #     proportion=0.2, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0
         # ),
@@ -407,6 +407,118 @@ class RobotEnvCfg(ManagerBasedRLEnvCfg):
 
 @configclass
 class RobotPlayEnvCfg(RobotEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 32
+        self.scene.terrain.terrain_generator.num_rows = 2
+        self.scene.terrain.terrain_generator.num_cols = 1
+        self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
+
+
+@configclass
+class ForwardYawCommandsCfg(CommandsCfg):
+    """Forward-speed and yaw command specifications for the MDP."""
+
+    base_velocity = mdp.UniformLevelVelocityCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(10.0, 10.0),
+        heading_command=False,
+        rel_standing_envs=0.0,
+        debug_vis=True,
+        ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+            lin_vel_x=(0.0, 0.2),
+            lin_vel_y=(0.0, 0.0),
+            ang_vel_z=(-0.2, 0.2),
+        ),
+        limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+            lin_vel_x=(0.0, 1.0),
+            lin_vel_y=(0.0, 0.0),
+            ang_vel_z=(-1.0, 1.0),
+        ),
+    )
+
+
+@configclass
+class ForwardYawCurriculumCfg:
+    """Curriculum terms for staged forward-speed and yaw locomotion."""
+
+    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+    lin_vel_cmd_levels = CurrTerm(func=mdp.forward_uniform_lin_yaw_cmd_levels)
+
+
+@configclass
+class RobotForwardYawEnvCfg(RobotEnvCfg):
+    """Configuration for staged forward-speed and yaw locomotion."""
+
+    commands: ForwardYawCommandsCfg = ForwardYawCommandsCfg()
+    curriculum: ForwardYawCurriculumCfg = ForwardYawCurriculumCfg()
+
+
+@configclass
+class RobotForwardYawPlayEnvCfg(RobotForwardYawEnvCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 32
+        self.scene.terrain.terrain_generator.num_rows = 2
+        self.scene.terrain.terrain_generator.num_cols = 1
+        self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
+
+
+@configclass
+class VelocityOptCommandsCfg(CommandsCfg):
+    """ForwardYaw-style commands with symmetric x sampling for the MDP."""
+
+    base_velocity = mdp.StagedVelocityOptCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(10.0, 10.0),
+        heading_command=False,
+        rel_standing_envs=0.0,
+        debug_vis=True,
+        yaw_overlay_prob=1.0,
+        magnitude_exponent=0.5,
+        ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+            lin_vel_x=(-0.2, 0.2),
+            lin_vel_y=(0.0, 0.0),
+            ang_vel_z=(-0.2, 0.2),
+        ),
+        limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+            lin_vel_x=(-1.0, 1.0),
+            lin_vel_y=(0.0, 0.0),
+            ang_vel_z=(-1.0, 1.0),
+        ),
+    )
+
+
+@configclass
+class VelocityOptCurriculumCfg:
+    """Curriculum terms matching ForwardYaw, with symmetric x commands."""
+
+    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+    lin_vel_cmd_levels = CurrTerm(func=mdp.symmetric_uniform_lin_yaw_cmd_levels)
+
+
+@configclass
+class VelocityOptRewardsCfg(RewardsCfg):
+    """Reward terms for the Velocity-Opt task."""
+
+    track_lin_vel_xy = RewTerm(
+        func=mdp.track_lin_vel_xy_exp,
+        weight=1.5,
+        params={"command_name": "base_velocity", "std": 0.15},
+    )
+
+
+@configclass
+class RobotVelocityOptEnvCfg(RobotEnvCfg):
+    """Configuration for ForwardYaw-style training with symmetric x commands."""
+
+    commands: VelocityOptCommandsCfg = VelocityOptCommandsCfg()
+    rewards: VelocityOptRewardsCfg = VelocityOptRewardsCfg()
+    curriculum: VelocityOptCurriculumCfg = VelocityOptCurriculumCfg()
+
+
+@configclass
+class RobotVelocityOptPlayEnvCfg(RobotVelocityOptEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 32

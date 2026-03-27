@@ -17,7 +17,7 @@ public:
         assert(ts_.size() == qs_.size());
     }
 
-    void enter()
+    void enter() override
     {
         // set gain
         static auto kp = param::config["FSM"]["FixStand"]["kp"].as<std::vector<float>>();

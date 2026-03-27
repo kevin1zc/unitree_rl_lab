@@ -76,6 +76,24 @@ def joint_position_penalty(
     return torch.where(torch.logical_or(cmd > 0.0, body_vel > velocity_threshold), reward, stand_still_scale * reward)
 
 
+def track_lin_vel_x_exp(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward x-velocity tracking with a sharper exponential kernel.
+
+    This treats forward and backward symmetrically and still rewards low-speed commands if they are
+    tracked accurately. The sharpness is controlled only by ``std``.
+    """
+    asset: RigidObject = env.scene[asset_cfg.name]
+    cmd_x = env.command_manager.get_command(command_name)[:, 0]
+    vel_x = asset.data.root_lin_vel_b[:, 0]
+    error = torch.square(cmd_x - vel_x)
+    return torch.exp(-error / std**2)
+
+
 """
 Feet rewards.
 """
