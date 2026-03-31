@@ -418,7 +418,7 @@ class ForwardYawCommandsCfg(CommandsCfg):
         heading_command=False,
         debug_vis=True,
         ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
-            lin_vel_x=(0.0, 0.2),
+            lin_vel_x=(0.0, 0.1),
             lin_vel_y=(0.0, 0.0),
             ang_vel_z=(0.0, 0.0),
         ),
@@ -435,7 +435,7 @@ class ForwardYawCurriculumCfg:
     """Curriculum terms for staged forward-speed and yaw locomotion."""
 
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
-    lin_vel_cmd_levels = CurrTerm(func=mdp.staged_forward_lin_vel_x_cmd_levels)
+    lin_vel_cmd_levels = CurrTerm(func=mdp.staged_forward_lin_vel_x_cmd_levels, params={"step": 0.1})
     ang_vel_cmd_levels = CurrTerm(func=mdp.staged_ang_vel_z_cmd_levels)
 
 
@@ -445,6 +445,11 @@ class RobotForwardYawEnvCfg(RobotEnvCfg):
 
     commands: ForwardYawCommandsCfg = ForwardYawCommandsCfg()
     curriculum: ForwardYawCurriculumCfg = ForwardYawCurriculumCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.events.add_base_mass = None
+        self.events.push_robot = None
 
 
 @configclass

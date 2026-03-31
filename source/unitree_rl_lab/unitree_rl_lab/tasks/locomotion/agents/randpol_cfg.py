@@ -11,13 +11,13 @@ from unitree_rl_lab.randpol.config import RandpolRunnerCfg
 @configclass
 class BaseRANDPOLRunnerCfg(RandpolRunnerCfg):
     num_steps_per_env = 50
-    max_iterations = 10000
+    max_iterations = 1000
     save_interval = 100
     experiment_name = ""
     actor_obs_group = "policy"
     critic_obs_group = "critic"
     obs_history_length = 0
-    feature_dim = 800
+    feature_dim = 400
     hidden_dims = [500]
     activation = "elu"
     init_dist = "uniform"

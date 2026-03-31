@@ -5,22 +5,94 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import pathlib
 import re
 import sys
-
-import torch
-
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "source" / "unitree_rl_lab"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
-from unitree_rl_lab.randpol.runner import RandpolOnPolicyRunner
+import torch
+from torch import nn
+
+
+def _load_models_module():
+    models_path = SOURCE_ROOT / "unitree_rl_lab" / "randpol" / "models.py"
+    spec = importlib.util.spec_from_file_location("randpol_export_models", models_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load RANDPOL models from {models_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_models = _load_models_module()
+RandomFeatureGaussianPolicy = _models.RandomFeatureGaussianPolicy
 
 
 CHECKPOINT_PATTERN = re.compile(r"model_(\d+)\.pt$")
+
+
+class RandpolInferenceModule(nn.Module):
+    """Deterministic inference module with baked-in observation normalization."""
+
+    def __init__(
+        self,
+        policy_state: dict[str, torch.Tensor],
+        actor_obs_rms_state: dict[str, torch.Tensor],
+        cfg: dict,
+    ) -> None:
+        super().__init__()
+        obs_dim = int(policy_state["trunk.net.0.weight"].shape[1])
+        action_dim = int(policy_state["head.weight"].shape[0])
+        feature_dim = int(policy_state["head.weight"].shape[1])
+
+        self.normalize_obs = bool(cfg.get("normalize_obs", True))
+        self.norm_epsilon = float(cfg.get("norm_epsilon", 1.0e-8))
+        self.obs_norm_clip = float(cfg.get("obs_norm_clip", 10.0))
+
+        self.register_buffer(
+            "obs_mean",
+            actor_obs_rms_state.get("mean", torch.zeros(obs_dim, dtype=torch.float32)).to(dtype=torch.float32),
+        )
+        self.register_buffer(
+            "obs_var",
+            actor_obs_rms_state.get("var", torch.ones(obs_dim, dtype=torch.float32)).to(dtype=torch.float32),
+        )
+
+        self.policy = RandomFeatureGaussianPolicy(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            feature_dim=feature_dim,
+            hidden_dims=cfg.get("hidden_dims", []),
+            activation=cfg.get("activation", "elu"),
+            init_dist=cfg.get("init_dist", "uniform"),
+            init_log_std=float(cfg.get("init_log_std", 0.0)),
+            log_std_min=float(cfg.get("log_std_min", -20.0)),
+            log_std_max=float(cfg.get("log_std_max", 2.0)),
+        )
+        self.policy.load_state_dict(policy_state)
+        self.policy.eval()
+        for parameter in self.policy.parameters():
+            parameter.requires_grad_(False)
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        normalized_obs = obs
+        if self.normalize_obs:
+            normalized_obs = (normalized_obs - self.obs_mean) / torch.sqrt(self.obs_var + self.norm_epsilon)
+            normalized_obs = torch.clamp(normalized_obs, -self.obs_norm_clip, self.obs_norm_clip)
+        return self.policy.act_inference(normalized_obs)
+
+
+def _build_inference_module_from_state(state_dict: dict) -> RandpolInferenceModule:
+    return RandpolInferenceModule(
+        policy_state=state_dict["policy_model"],
+        actor_obs_rms_state=state_dict.get("actor_obs_rms", {}),
+        cfg=state_dict.get("cfg", {}),
+    )
 
 
 def _checkpoint_sort_key(path: pathlib.Path) -> tuple[int, str]:
@@ -86,7 +158,7 @@ def _export_run(run_dir: pathlib.Path, checkpoint_name: str, force: bool) -> pat
         return onnx_path
 
     checkpoint_state = torch.load(checkpoint_path, map_location="cpu")
-    module = RandpolOnPolicyRunner.build_inference_module_from_state(checkpoint_state).cpu().eval()
+    module = _build_inference_module_from_state(checkpoint_state).cpu().eval()
     dummy_input = torch.zeros(1, int(module.obs_mean.numel()), dtype=torch.float32)
 
     export_dir.mkdir(parents=True, exist_ok=True)

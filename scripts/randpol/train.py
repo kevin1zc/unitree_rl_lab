@@ -35,7 +35,7 @@ parser.add_argument("--video_length", type=int, default=200, help="Length of the
 parser.add_argument("--video_interval", type=int, default=2000, help="Interval between video recordings (in steps).")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, choices=tasks, help="Name of the task.")
-parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
+parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment. Pass an explicit value for multi-seed studies.")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
 cli_args.add_randpol_args(parser)
 AppLauncher.add_app_launcher_args(parser)
@@ -143,6 +143,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     agent_cfg.device = env_cfg.sim.device
     _configure_randpol_env_cfg(env_cfg, agent_cfg)
 
+    if args_cli.seed is None:
+        print(f"[WARN] No explicit --seed was provided. Reusing configured seed: {agent_cfg.seed}")
+    print(f"[INFO] Using seed: {agent_cfg.seed}")
+
     log_root_path = os.path.join("logs", "randpol", agent_cfg.experiment_name)
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Logging experiment in directory: {log_root_path}")
@@ -150,6 +154,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     print(f"Exact experiment name requested from command line: {log_dir}")
     if agent_cfg.run_name:
         log_dir += f"_{agent_cfg.run_name}"
+    if f"seed{agent_cfg.seed}" not in log_dir:
+        log_dir += f"_seed{agent_cfg.seed}"
     log_dir = os.path.join(log_root_path, log_dir)
     os.makedirs(os.path.join(log_dir, "params"), exist_ok=True)
     os.makedirs(os.path.join(log_dir, "checkpoints"), exist_ok=True)

@@ -40,5 +40,5 @@ FSM:
   Velocity:
     transitions: 
       Passive: LT + B.on_pressed
-    policy_dir: ../../../logs/randpol/unitree_go2_velocity_opt
+    policy_dir: ../../../logs/randpol/unitree_go2_forwardyaw_velocity
     
